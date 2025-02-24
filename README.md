@@ -6,7 +6,7 @@
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/DVinals4721/ME_700_Assignment_2)
 
 This package provides an implementation of a 3D Frame Solver using the Direct Stiffness Method, including:
-
+hey
 - 3D beam element formulation
 - Geometric nonlinearity consideration
 - Local and global stiffness matrix assembly
