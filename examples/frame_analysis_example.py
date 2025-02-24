@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 
-# (Include all the class definitions and functions from the previous code here)
-
 def main():
     # Define nodes
     # Format: Node(id, x, y, z)
