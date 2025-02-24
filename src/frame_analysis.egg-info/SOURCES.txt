@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+src/frame_analysis.egg-info/PKG-INFO
+src/frame_analysis.egg-info/SOURCES.txt
+src/frame_analysis.egg-info/dependency_links.txt
+src/frame_analysis.egg-info/requires.txt
+src/frame_analysis.egg-info/top_level.txt
+src/frame_solver/__init__.py
+src/frame_solver/frame_analysis.py
+tests/test_frame_analysis.py

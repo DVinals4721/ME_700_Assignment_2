@@ -1,0 +1,14 @@
+Metadata-Version: 2.2
+Name: frame_analysis
+Version: 0.1.0
+Summary: A 3D frame solver using the Direct Stiffness Method
+Author-email: Your Name <your.email@example.com>
+License: MIT
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: isort; extra == "dev"
