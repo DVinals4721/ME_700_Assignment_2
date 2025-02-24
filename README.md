@@ -60,9 +60,6 @@ This package provides an implementation of a 3D Frame Solver using the Direct St
    ```
 
 7. Run tests with coverage:
-   ```bash
-   pytest -v --cov=. --cov-report=xml
-   ```
 
    ```bash
    pytest -v --cov=frame_solver --cov-report term-missing
