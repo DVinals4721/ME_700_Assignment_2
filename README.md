@@ -1,7 +1,7 @@
 
 # ME_700_Assignment_2: 3D Frame Solver
 ![GitHub Actions](https://github.com/DVinals4721/ME_700_Assignment_2/actions/workflows/test.yml/badge.svg)
-[![codecov](https://codecov.io/gh/DVinals4721/ME_700_Assignment_2/branch/main/graph/badge.svg)](https://codecov.io/gh/DVinals4721/ME_700_Assignment_2)
+[![codecov](https://codecov.io/gh/DVinals4721/ME_700_Assignment_2/branch/main/graph/badge.svg?token=YOUR_CODECOV_TOKEN)](https://codecov.io/gh/DVinals4721/ME_700_Assignment_2)
 ![GitHub issues](https://img.shields.io/github/issues/DVinals4721/ME_700_Assignment_2)
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/DVinals4721/ME_700_Assignment_2)
 
