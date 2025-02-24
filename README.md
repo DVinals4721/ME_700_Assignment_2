@@ -1,5 +1,4 @@
 
-```markdown
 # ME_700_Assignment_2: 3D Frame Solver
 ![GitHub Actions](https://github.com/DVinals4721/ME_700_Assignment_2/actions/workflows/test.yml/badge.svg)
 [![codecov](https://codecov.io/gh/DVinals4721/ME_700_Assignment_2/branch/main/graph/badge.svg)](https://codecov.io/gh/DVinals4721/ME_700_Assignment_2)
