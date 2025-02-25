@@ -1,5 +1,5 @@
 Metadata-Version: 2.2
-Name: frame_analysis
+Name: frame_solver
 Version: 0.1.0
 Summary: A 3D frame solver using the Direct Stiffness Method
 Author-email: Your Name <your.email@example.com>
