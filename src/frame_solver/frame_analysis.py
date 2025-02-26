@@ -57,10 +57,11 @@ class FrameSolver:
         self.loads = loads
         self.bcs = bcs
         self.ndof = len(nodes) * 6
+        self.kg_included = False
 
     def solve(self) -> Tuple[np.ndarray, np.ndarray]:
-        max_iterations = 10
-        tolerance = 1e-6
+        max_iterations = 100
+        tolerance = 1e-8
         
         for iteration in range(max_iterations):
             K = self._assemble_global_stiffness_matrix()
@@ -99,7 +100,9 @@ class FrameSolver:
         k_g = self.local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(
             L, element.A, element.I_rho, element.Fx2
         )
-        return k_e + k_g
+        if self.kg_included:
+            return k_e + k_g
+        return k_e 
 
     def _compute_transformation_matrix(self, element: Element) -> np.ndarray:
         x1, y1, z1 = element.node1.coordinates
