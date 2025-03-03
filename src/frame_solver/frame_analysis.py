@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import scipy
 
 @dataclass
 class Node:
@@ -59,8 +60,8 @@ class FrameSolver:
         self.ndof = len(nodes) * 6
         self.kg_included = False
 
-    def solve(self) -> Tuple[np.ndarray, np.ndarray]:
-        max_iterations = 100
+    def solve(self) -> Tuple[np.ndarray, np.ndarray, float]:
+        max_iterations = 1000
         tolerance = 1e-8
         
         for iteration in range(max_iterations):
@@ -80,8 +81,28 @@ class FrameSolver:
             U_prev = U.copy()
         
         R = K @ U - F
-        return U, R
 
+        # Calculate critical load factor and buckling mode
+        K_g = self._assemble_global_geometric_stiffness_matrix()
+        try:
+            eigenvalues, eigenvectors = scipy.linalg.eig(K, K_g)
+            positive_indices = np.real(eigenvalues) > 0
+            positive_eigenvalues = eigenvalues[positive_indices]
+            if len(positive_eigenvalues) > 0:
+                critical_load_factor = np.min(np.real(positive_eigenvalues))
+                critical_index = np.argmin(np.real(positive_eigenvalues))
+                buckling_mode = eigenvectors[:, positive_indices][:, critical_index]
+            else:
+                critical_load_factor = np.inf
+                buckling_mode = np.zeros(K.shape[0])
+                print("Warning: No positive eigenvalues found. The structure may be unstable.")
+        except np.linalg.LinAlgError:
+            print("Warning: Eigenvalue computation failed. The critical load factor may not be accurate.")
+            critical_load_factor = np.inf
+            buckling_mode = np.zeros(K.shape[0])
+
+        return U, R, critical_load_factor, buckling_mode
+    
     def _assemble_global_stiffness_matrix(self) -> np.ndarray:
         K = np.zeros((self.ndof, self.ndof))
         for element in self.elements:
@@ -102,7 +123,7 @@ class FrameSolver:
         )
         if self.kg_included:
             return k_e + k_g
-        return k_e 
+        return k_e
 
     def _compute_transformation_matrix(self, element: Element) -> np.ndarray:
         x1, y1, z1 = element.node1.coordinates
@@ -238,6 +259,80 @@ class FrameSolver:
         k_g[3, 3] = k_g[9, 9] = Fx2 * I_rho / (A * L)
         k_g[4, 4] = k_g[5, 5] = k_g[10, 10] = k_g[11, 11] = 2.0 * Fx2 * L / 15.0
         return k_g
+    def _assemble_global_geometric_stiffness_matrix(self) -> np.ndarray:
+        """Assemble the global geometric stiffness matrix."""
+        K_g = np.zeros((self.ndof, self.ndof))
+        for element in self.elements:
+            k_g_local = self.local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(
+                np.linalg.norm(element.node2.coordinates - element.node1.coordinates),
+                element.A,
+                element.I_rho,
+                element.Fx2
+            )
+            T = self._compute_transformation_matrix(element)
+            k_g_global = T.T @ k_g_local @ T
+            dofs = self._get_element_dofs(element)
+            K_g[np.ix_(dofs, dofs)] += k_g_global
+        return K_g
+    
+    def compute_member_forces(self, element: Element, U: np.ndarray) -> np.ndarray:
+        """Compute member internal forces and moments in local coordinates."""
+        T = self._compute_transformation_matrix(element)
+        u1 = U[element.node1.id * 6 : element.node1.id * 6 + 6]
+        u2 = U[element.node2.id * 6 : element.node2.id * 6 + 6]
+        u_element = np.concatenate((u1, u2))
+        u_local = T.T @ u_element
+        k_local = self._compute_element_stiffness_matrix(element)
+        return k_local @ u_local
 
+    def plot_member_forces(self, element: Element, forces: np.ndarray):
+        """Plot member internal forces and moments in local coordinates."""
+        L = np.linalg.norm(element.node2.coordinates - element.node1.coordinates)
+        x = np.linspace(0, L, 100)
+        
+        fig, axs = plt.subplots(3, 2, figsize=(12, 15))
+        titles = ['Axial Force', 'Shear Force Y', 'Shear Force Z', 'Torsion', 'Bending Moment Y', 'Bending Moment Z']
+        
+        for i, (ax, title) in enumerate(zip(axs.flat, titles)):
+            if i in [0, 3]:  # Constant along length
+                ax.plot([0, L], [forces[i], forces[i+6]])
+            elif i in [1, 2]:  # Linear variation
+                ax.plot(x, np.interp(x, [0, L], [forces[i], forces[i+6]]))
+            else:  # Quadratic variation
+                a = (forces[i+6] - forces[i]) / L
+                b = forces[i]
+                ax.plot(x, a * x**2 / 2 + b * x)
+            
+            ax.set_title(title)
+            ax.set_xlabel('Length')
+            ax.set_ylabel('Force/Moment')
+        
+        plt.tight_layout()
+        plt.show()
+
+    def plot_deformed_shape(self, U: np.ndarray, scale: float = 1.0):
+        """Plot the interpolated deformed shape of the whole structure."""
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+
+        for element in self.elements:
+            x1, y1, z1 = element.node1.coordinates
+            x2, y2, z2 = element.node2.coordinates
+            
+            # Original shape
+            ax.plot([x1, x2], [y1, y2], [z1, z2], 'b-')
+            
+            # Deformed shape
+            u1 = U[element.node1.id * 6 : element.node1.id * 6 + 3]
+            u2 = U[element.node2.id * 6 : element.node2.id * 6 + 3]
+            ax.plot([x1 + scale*u1[0], x2 + scale*u2[0]],
+                    [y1 + scale*u1[1], y2 + scale*u2[1]],
+                    [z1 + scale*u1[2], z2 + scale*u2[2]], 'r-')
+
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_title('Deformed Shape (Red) vs Original Shape (Blue)')
+        plt.show()
 
 
