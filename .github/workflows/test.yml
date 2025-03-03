@@ -31,7 +31,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install numpy matplotlib
+          pip install numpy matplotlib scipy
           pip install -e . --no-cache-dir
         timeout-minutes: 15
 
