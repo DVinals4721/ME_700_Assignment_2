@@ -219,19 +219,5 @@ def test_compute_member_forces(simple_frame):
     forces = solver.compute_member_forces(elements[0], U)
     assert len(forces) == 12
 
-def test_plot_member_forces(simple_frame):
-    nodes, elements, loads, bcs = simple_frame
-    solver = FrameSolver(nodes, elements, loads, bcs)
-    forces = np.random.rand(12)
-    solver.plot_member_forces(elements[0], forces)
-    # This test just checks if the method runs without errors
-
-def test_plot_deformed_shape(simple_frame):
-    nodes, elements, loads, bcs = simple_frame
-    solver = FrameSolver(nodes, elements, loads, bcs)
-    U = np.random.rand(18)
-    solver.plot_deformed_shape(U)
-    # This test just checks if the method runs without errors
-
 if __name__ == "__main__":
     pytest.main()

@@ -98,4 +98,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 This project is licensed under the MIT License - see the LICENSE file for details.
 ```
 
-This revised README now has ```bash specified at the beginning of every code block, ensuring consistent syntax highlighting and formatting across different platforms and viewers.
