@@ -60,29 +60,50 @@ class FrameSolver:
         self.ndof = len(nodes) * 6
         self.kg_included = False
 
-    def solve(self) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray]:
+    def solve(self):
         max_iterations = 1000
         tolerance = 1e-8
         
         for iteration in range(max_iterations):
             K = self._assemble_global_stiffness_matrix()
             F = self._assemble_load_vector()
+            
+            print(f"Iteration {iteration}")
+            print("K shape:", K.shape)
+            print("F shape:", F.shape)
+            print("K condition number:", np.linalg.cond(K))
+            print("F norm:", np.linalg.norm(F))
+            
             K_mod, F_mod = self._apply_boundary_conditions(K, F)
             
-            U_mod = np.linalg.solve(K_mod, F_mod)
-            U = self._recover_full_displacement_vector(U_mod)
+            if np.any(np.isnan(K_mod)) or np.any(np.isinf(K_mod)):
+                raise ValueError("K_mod contains NaN or Inf values")
+            if np.any(np.isnan(F_mod)) or np.any(np.isinf(F_mod)):
+                raise ValueError("F_mod contains NaN or Inf values")
             
-            if iteration < max_iterations - 1:
-                self._update_geometric_stiffness(U)
+            try:
+                U_mod = np.linalg.solve(K_mod, F_mod)
+            except np.linalg.LinAlgError as e:
+                print(f"Linear algebra error: {e}")
+                print("K_mod:")
+                print(K_mod)
+                print("F_mod:")
+                print(F_mod)
+                raise
+            
+            U = self._recover_full_displacement_vector(U_mod)
             
             if iteration > 0 and np.linalg.norm(U - U_prev) < tolerance:
                 break
             
             U_prev = U.copy()
+            self._update_geometric_stiffness(U)
         
         R = K @ U - F
         critical_load_factor, buckling_mode = self.solve_critical_buckling_load(U)
+        
         return U, R, critical_load_factor, buckling_mode
+  
     
     def _assemble_global_stiffness_matrix(self) -> np.ndarray:
         K = np.zeros((self.ndof, self.ndof))
@@ -174,15 +195,33 @@ class FrameSolver:
             
             # Update the axial force (Fx2)
             element.Fx2 = f_local[6]  # The axial force at the second node
-    def rotation_matrix_3D(self,x1, y1, z1, x2, y2, z2, v_temp=None):
+    def rotation_matrix_3D(self, x1, y1, z1, x2, y2, z2, v_temp=None):
         L = np.sqrt((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)
+        if L < 1e-10:  # Check for very short elements
+            raise ValueError(f"Element length is too small: {L}")
+        
         local_x = np.array([(x2 - x1) / L, (y2 - y1) / L, (z2 - z1) / L])
         
+        # If v_temp is not provided, choose a default
         if v_temp is None:
-            v_temp = np.array([0, 0, 1.0]) if np.isclose(local_x[0], 0.0) and np.isclose(local_x[1], 0.0) else np.array([0, 1.0, 0.0])
+            v_temp = np.array([0, 1.0, 0.0])
+        
+        # Check if local_x is parallel to v_temp
+        if np.abs(np.dot(local_x, v_temp)) > 0.999:
+            # If they're parallel, choose a different v_temp
+            v_temp = np.array([1.0, 0.0, 0.0])
+            
+            # Check again, just in case
+            if np.abs(np.dot(local_x, v_temp)) > 0.999:
+                v_temp = np.array([0.0, 0.0, 1.0])
         
         local_y = np.cross(v_temp, local_x)
-        local_y /= np.linalg.norm(local_y)
+        local_y_norm = np.linalg.norm(local_y)
+        
+        if local_y_norm < 1e-10:
+            raise ValueError(f"Unable to compute local y-axis. local_x: {local_x}, v_temp: {v_temp}")
+        
+        local_y /= local_y_norm
         local_z = np.cross(local_x, local_y)
         
         return np.vstack((local_x, local_y, local_z))
@@ -447,14 +486,10 @@ class FrameSolver:
         # Extract submatrices
         K_e_ff = K_elastic_global[np.ix_(unknown_dofs, unknown_dofs)]
         K_g_ff = K_geo_global[np.ix_(unknown_dofs, unknown_dofs)]
+        #print(K_e_ff)
+        #print(K_g_ff)
         K_e_kk = K_elastic_global[np.ix_(known_dofs, known_dofs)]
         K_g_kk = K_geo_global[np.ix_(known_dofs, known_dofs)]
-
-        # Compute and print condition numbers
-        cond_Ke_ff = np.linalg.cond(K_e_ff)
-        cond_Kg_ff = np.linalg.cond(K_g_ff)
-        cond_Ke_kk = np.linalg.cond(K_e_kk)
-        cond_Kg_kk = np.linalg.cond(K_g_kk)
 
         # Solve the generalized eigenvalue problem
         eigvals, eigvecs = scipy.linalg.eig(K_e_ff, -K_g_ff)
@@ -517,7 +552,34 @@ class FrameSolver:
         H3 = 0.25 * (1 + xi)**2 * (2 - xi)
         H4 = 0.25 * (1 + xi)**2 * (xi - 1)
         return np.array([H1, H2, H3, H4])
+    def plot_original_frame(self):
+        """Plot the original frame without deformations."""
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(111, projection='3d')
 
+        # Plot all node positions
+        for node in self.nodes:
+            x, y, z = node.coordinates
+            ax.scatter(x, y, z, c='b', marker='o', s=30)
+
+        # Plot all elements
+        for element in self.elements:
+            x1, y1, z1 = element.node1.coordinates
+            x2, y2, z2 = element.node2.coordinates
+            
+            # Original shape
+            ax.plot([x1, x2], [y1, y2], [z1, z2], 'b-')
+
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_title('Original Frame')
+
+        # Set aspect ratio to be equal
+        ax.set_box_aspect((np.ptp(ax.get_xlim()), np.ptp(ax.get_ylim()), np.ptp(ax.get_zlim())))
+
+        plt.tight_layout()
+        plt.show()
     def plot_deformed_shape(self, U: np.ndarray, buckling_mode: np.ndarray = None, scale: float = 1, num_points: int = 100):
         """Plot the interpolated deformed shape and buckling mode of the structure using cubic interpolation."""
         fig = plt.figure(figsize=(12, 8))
