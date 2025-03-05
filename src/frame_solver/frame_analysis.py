@@ -60,7 +60,7 @@ class FrameSolver:
         self.ndof = len(nodes) * 6
         self.kg_included = False
 
-    def solve(self) -> Tuple[np.ndarray, np.ndarray, float]:
+    def solve(self) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray]:
         max_iterations = 1000
         tolerance = 1e-8
         
@@ -81,26 +81,7 @@ class FrameSolver:
             U_prev = U.copy()
         
         R = K @ U - F
-
-        # Calculate critical load factor and buckling mode
-        K_g = self._assemble_global_geometric_stiffness_matrix()
-        try:
-            eigenvalues, eigenvectors = scipy.linalg.eig(K, K_g)
-            positive_indices = np.real(eigenvalues) > 0
-            positive_eigenvalues = eigenvalues[positive_indices]
-            if len(positive_eigenvalues) > 0:
-                critical_load_factor = np.min(np.real(positive_eigenvalues))
-                critical_index = np.argmin(np.real(positive_eigenvalues))
-                buckling_mode = eigenvectors[:, positive_indices][:, critical_index]
-            else:
-                critical_load_factor = np.inf
-                buckling_mode = np.zeros(K.shape[0])
-                print("Warning: No positive eigenvalues found. The structure may be unstable.")
-        except np.linalg.LinAlgError:
-            print("Warning: Eigenvalue computation failed. The critical load factor may not be accurate.")
-            critical_load_factor = np.inf
-            buckling_mode = np.zeros(K.shape[0])
-
+        critical_load_factor, buckling_mode = self.solve_critical_buckling_load(U)
         return U, R, critical_load_factor, buckling_mode
     
     def _assemble_global_stiffness_matrix(self) -> np.ndarray:
@@ -259,32 +240,248 @@ class FrameSolver:
         k_g[3, 3] = k_g[9, 9] = Fx2 * I_rho / (A * L)
         k_g[4, 4] = k_g[5, 5] = k_g[10, 10] = k_g[11, 11] = 2.0 * Fx2 * L / 15.0
         return k_g
-    def _assemble_global_geometric_stiffness_matrix(self) -> np.ndarray:
-        """Assemble the global geometric stiffness matrix."""
-        K_g = np.zeros((self.ndof, self.ndof))
+    def local_geometric_stiffness_matrix_3D_beam(self,L, A, I_rho, Fx2, Mx2, My1, Mz1, My2, Mz2):
+        """
+        local element geometric stiffness matrix
+        source: p. 258 of McGuire's Matrix Structural Analysis 2nd Edition
+        Given:
+            material and geometric parameters:
+                L, A, I_rho (polar moment of inertia)
+            element forces and moments:
+                Fx2, Mx2, My1, Mz1, My2, Mz2
+        Context:
+            load vector:
+                [Fx1, Fy1, Fz1, Mx1, My1, Mz1, Fx2, Fy2, Fz2, Mx2, My2, Mz2]
+            DOF vector:
+                [u1, v1, w1, th_x1, th_y1, th_z1, u2, v2, w2, th_x2, th_y2, th_z2]
+            Equation:
+                [load vector] = [stiffness matrix] @ [DOF vector]
+        Returns:
+            12 x 12 geometric stiffness matrix k_g
+        """
+        k_g = np.zeros((12, 12))
+        # upper triangle off diagonal terms
+        k_g[0, 6] = -Fx2 / L
+        k_g[1, 3] = My1 / L
+        k_g[1, 4] = Mx2 / L
+        k_g[1, 5] = Fx2 / 10.0
+        k_g[1, 7] = -6.0 * Fx2 / (5.0 * L)
+        k_g[1, 9] = My2 / L
+        k_g[1, 10] = -Mx2 / L
+        k_g[1, 11] = Fx2 / 10.0
+        k_g[2, 3] = Mz1 / L
+        k_g[2, 4] = -Fx2 / 10.0
+        k_g[2, 5] = Mx2 / L
+        k_g[2, 8] = -6.0 * Fx2 / (5.0 * L)
+        k_g[2, 9] = Mz2 / L
+        k_g[2, 10] = -Fx2 / 10.0
+        k_g[2, 11] = -Mx2 / L
+        k_g[3, 4] = -1.0 * (2.0 * Mz1 - Mz2) / 6.0
+        k_g[3, 5] = (2.0 * My1 - My2) / 6.0
+        k_g[3, 7] = -My1 / L
+        k_g[3, 8] = -Mz1 / L
+        k_g[3, 9] = -Fx2 * I_rho / (A * L)
+        k_g[3, 10] = -1.0 * (Mz1 + Mz2) / 6.0
+        k_g[3, 11] = (My1 + My2) / 6.0
+        k_g[4, 7] = -Mx2 / L
+        k_g[4, 8] = Fx2 / 10.0
+        k_g[4, 9] = -1.0 * (Mz1 + Mz2) / 6.0
+        k_g[4, 10] = -Fx2 * L / 30.0
+        k_g[4, 11] = Mx2 / 2.0
+        k_g[5, 7] = -Fx2 / 10.0
+        k_g[5, 8] = -Mx2 / L
+        k_g[5, 9] = (My1 + My2) / 6.0
+        k_g[5, 10] = -Mx2 / 2.0
+        k_g[5, 11] = -Fx2 * L / 30.0
+        k_g[7, 9] = -My2 / L
+        k_g[7, 10] = Mx2 / L
+        k_g[7, 11] = -Fx2 / 10.0
+        k_g[8, 9] = -Mz2 / L
+        k_g[8, 10] = Fx2 / 10.0
+        k_g[8, 11] = Mx2 / L
+        k_g[9, 10] = (Mz1 - 2.0 * Mz2) / 6.0
+        k_g[9, 11] = -1.0 * (My1 - 2.0 * My2) / 6.0
+        # add in the symmetric lower triangle
+        k_g = k_g + k_g.transpose()
+        # add diagonal terms
+        k_g[0, 0] = Fx2 / L
+        k_g[1, 1] = 6.0 * Fx2 / (5.0 * L)
+        k_g[2, 2] = 6.0 * Fx2 / (5.0 * L)
+        k_g[3, 3] = Fx2 * I_rho / (A * L)
+        k_g[4, 4] = 2.0 * Fx2 * L / 15.0
+        k_g[5, 5] = 2.0 * Fx2 * L / 15.0
+        k_g[6, 6] = Fx2 / L
+        k_g[7, 7] = 6.0 * Fx2 / (5.0 * L)
+        k_g[8, 8] = 6.0 * Fx2 / (5.0 * L)
+        k_g[9, 9] = Fx2 * I_rho / (A * L)
+        k_g[10, 10] = 2.0 * Fx2 * L / 15.0
+        k_g[11, 11] = 2.0 * Fx2 * L / 15.0
+        return k_g
+    def _assemble_global_geometric_stiffness_matrix(self, U: np.ndarray) -> np.ndarray:
+        n_nodes = len(self.nodes)
+        n_dofs = n_nodes * 6  # 6 DOFs per node
+        K_geo_global = np.zeros((n_dofs, n_dofs))
+
         for element in self.elements:
-            k_g_local = self.local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(
-                np.linalg.norm(element.node2.coordinates - element.node1.coordinates),
-                element.A,
-                element.I_rho,
-                element.Fx2
+            # Compute internal forces
+            int_forces = self.compute_member_forces(element, U)
+            Fx1, Fy1, Fz1, Mx1, My1, Mz1, Fx2, Fy2, Fz2, Mx2, My2, Mz2 = int_forces
+
+            # Get node coordinates
+            n1_loc = np.array([element.node1.x, element.node1.y, element.node1.z])
+            n2_loc = np.array([element.node2.x, element.node2.y, element.node2.z])
+            
+            # Compute element length
+            L = np.linalg.norm(n2_loc - n1_loc)
+
+            # Compute local geometric stiffness matrix
+            k_geo = self.local_geometric_stiffness_matrix_3D_beam(
+                L, element.A, element.I_rho, Fx2, Mx2, My1, Mz1, My2, Mz2
             )
-            T = self._compute_transformation_matrix(element)
-            k_g_global = T.T @ k_g_local @ T
-            dofs = self._get_element_dofs(element)
-            K_g[np.ix_(dofs, dofs)] += k_g_global
-        return K_g
+
+            # Compute transformation matrix
+            gamma = self.rotation_matrix_3D(
+                n1_loc[0], n1_loc[1], n1_loc[2],
+                n2_loc[0], n2_loc[1], n2_loc[2],
+                element.local_z
+            )
+            T = self.transformation_matrix_3D(gamma)
+
+            # Transform to global coordinates
+            k_geo_global = T.T @ k_geo @ T
+
+            # Assemble into global matrix
+            dofs = np.array([
+                element.node1.id * 6, element.node1.id * 6 + 1, element.node1.id * 6 + 2,
+                element.node1.id * 6 + 3, element.node1.id * 6 + 4, element.node1.id * 6 + 5,
+                element.node2.id * 6, element.node2.id * 6 + 1, element.node2.id * 6 + 2,
+                element.node2.id * 6 + 3, element.node2.id * 6 + 4, element.node2.id * 6 + 5
+            ])
+
+            for i in range(12):
+                for j in range(12):
+                    K_geo_global[dofs[i], dofs[j]] += k_geo_global[i, j]
+
+        return K_geo_global
+
+    def _get_free_dofs(self):
+        free_dofs = list(range(self.ndof))
+        for bc in self.bcs:
+            start_dof = bc.node.id * 6
+            if bc.ux: free_dofs.remove(start_dof)
+            if bc.uy: free_dofs.remove(start_dof + 1)
+            if bc.uz: free_dofs.remove(start_dof + 2)
+            if bc.rx: free_dofs.remove(start_dof + 3)
+            if bc.ry: free_dofs.remove(start_dof + 4)
+            if bc.rz: free_dofs.remove(start_dof + 5)
+        return free_dofs
     
     def compute_member_forces(self, element: Element, U: np.ndarray) -> np.ndarray:
         """Compute member internal forces and moments in local coordinates."""
-        T = self._compute_transformation_matrix(element)
-        u1 = U[element.node1.id * 6 : element.node1.id * 6 + 6]
-        u2 = U[element.node2.id * 6 : element.node2.id * 6 + 6]
-        u_element = np.concatenate((u1, u2))
-        u_local = T.T @ u_element
-        k_local = self._compute_element_stiffness_matrix(element)
-        return k_local @ u_local
+        # Get node coordinates
+        node1_loc = np.array([element.node1.x, element.node1.y, element.node1.z])
+        node2_loc = np.array([element.node2.x, element.node2.y, element.node2.z])
 
+        # Compute element length
+        L = np.linalg.norm(node2_loc - node1_loc)
+
+        # Compute local stiffness matrix
+        k_local = self.local_elastic_stiffness_matrix_3D_beam(
+            element.E, element.nu, element.A, L, element.Iy, element.Iz, element.J
+        )
+
+        # Compute transformation matrix
+        gamma = self.rotation_matrix_3D(
+            node1_loc[0], node1_loc[1], node1_loc[2],
+            node2_loc[0], node2_loc[1], node2_loc[2],
+            element.local_z
+        )
+        T = self.transformation_matrix_3D(gamma)
+
+        # Get element DOFs
+        dofs = np.array([
+            element.node1.id * 6, element.node1.id * 6 + 1, element.node1.id * 6 + 2,
+            element.node1.id * 6 + 3, element.node1.id * 6 + 4, element.node1.id * 6 + 5,
+            element.node2.id * 6, element.node2.id * 6 + 1, element.node2.id * 6 + 2,
+            element.node2.id * 6 + 3, element.node2.id * 6 + 4, element.node2.id * 6 + 5
+        ])
+
+        # Extract element displacements
+        disp_cur = U[dofs]
+
+        # Transform to local coordinates
+        disp_local = T @ disp_cur
+
+        # Compute internal forces
+        int_forces = k_local @ disp_local
+
+        return int_forces
+    def solve_critical_buckling_load(self,U):
+        # Solve the linear static problem
+        self.solved_disp=U
+
+        # Compute internal forces for each element
+        self.internal_forces = {element.id: self.compute_member_forces(element, self.solved_disp) 
+                                for element in self.elements}
+
+        # Assemble global stiffness matrices
+        K_elastic_global = self._assemble_global_stiffness_matrix()
+        K_geo_global = self._assemble_global_geometric_stiffness_matrix(self.solved_disp)
+
+        # Identify known (constrained) DOFs
+        known_dofs = []
+        for bc in self.bcs:
+            node_id = bc.node.id
+            dofs = [node_id * 6 + i for i in range(6)]
+            if bc.ux: known_dofs.append(dofs[0])
+            if bc.uy: known_dofs.append(dofs[1])
+            if bc.uz: known_dofs.append(dofs[2])
+            if bc.rx: known_dofs.append(dofs[3])
+            if bc.ry: known_dofs.append(dofs[4])
+            if bc.rz: known_dofs.append(dofs[5])
+
+        # Identify unknown (free) DOFs
+        n_dofs = K_elastic_global.shape[0]
+        unknown_dofs = [i for i in range(n_dofs) if i not in known_dofs]
+
+        # Extract submatrices
+        K_e_ff = K_elastic_global[np.ix_(unknown_dofs, unknown_dofs)]
+        K_g_ff = K_geo_global[np.ix_(unknown_dofs, unknown_dofs)]
+        K_e_kk = K_elastic_global[np.ix_(known_dofs, known_dofs)]
+        K_g_kk = K_geo_global[np.ix_(known_dofs, known_dofs)]
+
+        # Compute and print condition numbers
+        cond_Ke_ff = np.linalg.cond(K_e_ff)
+        cond_Kg_ff = np.linalg.cond(K_g_ff)
+        cond_Ke_kk = np.linalg.cond(K_e_kk)
+        cond_Kg_kk = np.linalg.cond(K_g_kk)
+
+        # Solve the generalized eigenvalue problem
+        eigvals, eigvecs = scipy.linalg.eig(K_e_ff, -K_g_ff)
+
+        # Filter and sort eigenvalues and eigenvectors
+        real_pos_mask = np.isreal(eigvals) & (eigvals > 0)
+        filtered_eigvals = np.real(eigvals[real_pos_mask])
+        filtered_eigvecs = eigvecs[:, real_pos_mask]
+
+        if len(filtered_eigvals) > 0:
+            # Find the index of the smallest positive real eigenvalue
+            min_index = np.argmin(filtered_eigvals)
+            
+            # Get the smallest positive real eigenvalue and its corresponding eigenvector
+            critical_load_factor = filtered_eigvals[min_index]
+            critical_mode_free = filtered_eigvecs[:, min_index]
+            
+            # Normalize the eigenvector
+            critical_mode_free = critical_mode_free / np.linalg.norm(critical_mode_free)
+
+            # Expand the critical mode to include all DOFs
+            critical_mode = np.zeros(self.ndof)
+            critical_mode[unknown_dofs] = critical_mode_free
+
+            return critical_load_factor, critical_mode
+        else:
+            return None, None
     def plot_member_forces(self, element: Element, forces: np.ndarray):
         """Plot member internal forces and moments in local coordinates."""
         L = np.linalg.norm(element.node2.coordinates - element.node1.coordinates)
@@ -310,29 +507,102 @@ class FrameSolver:
         plt.tight_layout()
         plt.show()
 
-    def plot_deformed_shape(self, U: np.ndarray, scale: float = 1.0):
-        """Plot the interpolated deformed shape of the whole structure."""
-        fig = plt.figure(figsize=(10, 8))
+    def hermite_polynomials(self,xi):
+        """
+        Calculate Hermite polynomials for beam elements.
+        xi: Local coordinate (-1 to 1)
+        """
+        H1 = 0.25 * (1 - xi)**2 * (2 + xi)
+        H2 = 0.25 * (1 - xi)**2 * (1 + xi)
+        H3 = 0.25 * (1 + xi)**2 * (2 - xi)
+        H4 = 0.25 * (1 + xi)**2 * (xi - 1)
+        return np.array([H1, H2, H3, H4])
+
+    def plot_deformed_shape(self, U: np.ndarray, buckling_mode: np.ndarray = None, scale: float = 1, num_points: int = 100):
+        """Plot the interpolated deformed shape and buckling mode of the structure using cubic interpolation."""
+        fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection='3d')
 
+        s = np.linspace(0, 1, num_points)
+
+        # Dictionary to store deformed node positions
+        deformed_nodes = {}
+        buckling_nodes = {}
+
+        # Calculate max displacement for adaptive scaling
+        max_disp = np.max(np.abs(U.reshape(-1, 6)[:, :3]))
+        adaptive_scale = scale * 0.1 / max_disp if max_disp > 0 else scale
+
+        # First, calculate and plot all node positions
+        for node in self.nodes:
+            x, y, z = node.coordinates
+            u = adaptive_scale * U[node.id * 6 : node.id * 6 + 3]
+            deformed_pos = np.array([x + u[0], y + u[1], z + u[2]])
+            deformed_nodes[node.id] = deformed_pos
+
+            # Plot original and deformed node positions
+            ax.scatter(x, y, z, c='b', marker='o', s=30, label='Original' if node == self.nodes[0] else "")
+            ax.scatter(*deformed_pos, c='r', marker='o', s=30, label='Deformed' if node == self.nodes[0] else "")
+
+            if buckling_mode is not None:
+                b = adaptive_scale * buckling_mode[node.id * 6 : node.id * 6 + 3]
+                buckling_pos = np.array([x + b[0], y + b[1], z + b[2]])
+                buckling_nodes[node.id] = buckling_pos
+                ax.scatter(*buckling_pos, c='g', marker='o', s=30, label='Buckling Mode' if node == self.nodes[0] else "")
+
+        # Now plot the elements with cubic interpolation
         for element in self.elements:
             x1, y1, z1 = element.node1.coordinates
             x2, y2, z2 = element.node2.coordinates
             
             # Original shape
             ax.plot([x1, x2], [y1, y2], [z1, z2], 'b-')
-            
+
             # Deformed shape
-            u1 = U[element.node1.id * 6 : element.node1.id * 6 + 3]
-            u2 = U[element.node2.id * 6 : element.node2.id * 6 + 3]
-            ax.plot([x1 + scale*u1[0], x2 + scale*u2[0]],
-                    [y1 + scale*u1[1], y2 + scale*u2[1]],
-                    [z1 + scale*u1[2], z2 + scale*u2[2]], 'r-')
+            u1 = deformed_nodes[element.node1.id]
+            u2 = deformed_nodes[element.node2.id]
+            theta1 = U[element.node1.id * 6 + 3 : element.node1.id * 6 + 6]
+            theta2 = U[element.node2.id * 6 + 3 : element.node2.id * 6 + 6]
+
+            # Element length and direction
+            L = np.linalg.norm(np.array([x2, y2, z2]) - np.array([x1, y1, z1]))
+            direction = np.array([x2 - x1, y2 - y1, z2 - z1]) / L
+
+            # Cubic interpolation for deformed shape
+            def cubic_interp(s, p0, p1, v0, v1):
+                return (2*s**3 - 3*s**2 + 1) * p0 + \
+                    (s**3 - 2*s**2 + s) * L * v0 + \
+                    (-2*s**3 + 3*s**2) * p1 + \
+                    (s**3 - s**2) * L * v1
+        
+            x_def = cubic_interp(s, u1[0], u2[0], adaptive_scale * np.cross(theta1, direction)[0], adaptive_scale * np.cross(theta2, direction)[0])
+            y_def = cubic_interp(s, u1[1], u2[1], adaptive_scale * np.cross(theta1, direction)[1], adaptive_scale * np.cross(theta2, direction)[1])
+            z_def = cubic_interp(s, u1[2], u2[2], adaptive_scale * np.cross(theta1, direction)[2], adaptive_scale * np.cross(theta2, direction)[2])
+
+            ax.plot(x_def, y_def, z_def, 'r-')
+
+            # Buckling mode shape
+            if buckling_mode is not None:
+                b1 = buckling_nodes[element.node1.id]
+                b2 = buckling_nodes[element.node2.id]
+                theta_b1 = buckling_mode[element.node1.id * 6 + 3 : element.node1.id * 6 + 6]
+                theta_b2 = buckling_mode[element.node2.id * 6 + 3 : element.node2.id * 6 + 6]
+
+                # Cubic interpolation for buckling mode
+                x_buck = cubic_interp(s, b1[0], b2[0], adaptive_scale * np.cross(theta_b1, direction)[0], adaptive_scale * np.cross(theta_b2, direction)[0])
+                y_buck = cubic_interp(s, b1[1], b2[1], adaptive_scale * np.cross(theta_b1, direction)[1], adaptive_scale * np.cross(theta_b2, direction)[1])
+                z_buck = cubic_interp(s, b1[2], b2[2], adaptive_scale * np.cross(theta_b1, direction)[2], adaptive_scale * np.cross(theta_b2, direction)[2])
+
+                ax.plot(x_buck, y_buck, z_buck, 'g-')
 
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
-        ax.set_title('Deformed Shape (Red) vs Original Shape (Blue)')
+        ax.set_title('Deformed Shape and Buckling Mode (Cubic Interpolation)')
+        ax.legend()
+
+        # Set aspect ratio to be equal
+        ax.set_box_aspect((np.ptp(ax.get_xlim()), np.ptp(ax.get_ylim()), np.ptp(ax.get_zlim())))
+
+        plt.tight_layout()
         plt.show()
-
-

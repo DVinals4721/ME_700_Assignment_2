@@ -79,10 +79,11 @@ def Problem1():
     solver.plot_member_forces(elements[0], forces1)
 
     # Plot deformed shape
-    solver.plot_deformed_shape(reactions, scale=100)
+    solver.plot_deformed_shape(displacements, buckling_mode, scale=10)  # Adjust scale as needed
 
     print(f"\nElastic Critical Load Factor: {critical_load_factor}")
     print(f"\nBuckling Mode: {buckling_mode}")
+
 def Problem2():
     # Define nodes
     # Format: Node(id, x, y, z)
@@ -162,10 +163,86 @@ def Problem2():
     solver.plot_member_forces(elements[0], forces1)
 
     # Plot deformed shape
-    solver.plot_deformed_shape(reactions, scale=100)
+    solver.plot_deformed_shape(displacements, buckling_mode, scale=10)  # Adjust scale as needed
+
+    print(f"\nElastic Critical Load Factor: {critical_load_factor}")
+    print(f"\nBuckling Mode: {buckling_mode}")
+
+def Problem3():
+    # Define nodes
+    # Format: Node(id, x, y, z)
+
+    nodes = [
+        Node(0, 0, 0, 0),    # Base of the structure
+        Node(1, 30, 40, 0),    # Top of the vertical member
+
+    ]
+
+    # Define elements
+    # Format: Element(id, node1, node2, E, nu, A, Iz, Iy, J, I_rho, local_z)
+    r=1
+    E=1000
+    nu =0.3
+    A = np.pi*r**2.0
+    Iy = Iz = np.pi*(r**4.0)/4.0
+    I_rho = np.pi*(r**4)/2
+    J = np.pi*r**4.0/2.0
+                    
+    elements = [
+        Element(0, nodes[0], nodes[1], E, nu, A, Iz, Iy, J, I_rho, None),       
+    ]
+
+    # Define loads
+    # Format: Load(node, fx, fy, fz, mx, my, mz)
+    loads = [
+        Load(nodes[1], fx = -3/5,fy=-4/5,fz = 0,mx=0,my=0,mz=0 ),  
+    ]
+
+    # Define boundary conditions
+    # Format: BoundaryCondition(node, ux, uy, uz, rx, ry, rz)
+    # True means the DOF is constrained (fixed), False means it's free
+    bcs = [
+        BoundaryCondition(nodes[0], True, True, True, True, True, True),
+        BoundaryCondition(nodes[1], False, False, False, False, False, False), 
+    ]
+
+    # Create the FrameSolver instance
+    solver = FrameSolver(nodes, elements, loads, bcs)
+
+    # Solve the frame
+    displacements, reactions, critical_load_factor, buckling_mode = solver.solve()
+    # Print results
+    print("Displacements and Rotations:")
+    for i, node in enumerate(nodes):
+        start_index = i * 6
+        print(f"Node {node.id} (x={node.x}, y={node.y}, z={node.z}):")
+        print(f"  ux: {displacements[start_index]:.6f}")
+        print(f"  uy: {displacements[start_index + 1]:.6f}")
+        print(f"  uz: {displacements[start_index + 2]:.6f}")
+        print(f"  rx: {displacements[start_index + 3]:.6f}")
+        print(f"  ry: {displacements[start_index + 4]:.6f}")
+        print(f"  rz: {displacements[start_index + 5]:.6f}")
+
+    print("\nReaction Forces and Moments:")
+    for i, node in enumerate(nodes):
+        start_index = i * 6
+        if any(abs(reactions[start_index:start_index + 6]) > 1e-6):
+            print(f"Node {node.id} (x={node.x}, y={node.y}, z={node.z}):")
+            print(f"  Fx: {reactions[start_index]:.6f}")
+            print(f"  Fy: {reactions[start_index + 1]:.6f}")
+            print(f"  Fz: {reactions[start_index + 2]:.6f}")
+            print(f"  Mx: {reactions[start_index + 3]:.6f}")
+            print(f"  My: {reactions[start_index + 4]:.6f}")
+            print(f"  Mz: {reactions[start_index + 5]:.6f}")
+    # Compute and plot member forces for element0
+    forces1 = solver.compute_member_forces(elements[0], displacements)
+    solver.plot_member_forces(elements[0], forces1)
+
+    # Plot deformed shape
+    solver.plot_deformed_shape(displacements, buckling_mode, scale=1)  # Adjust scale as needed
 
     print(f"\nElastic Critical Load Factor: {critical_load_factor}")
     print(f"\nBuckling Mode: {buckling_mode}")
 
 if __name__ == "__main__":
-    Problem2()
+    Problem3()
