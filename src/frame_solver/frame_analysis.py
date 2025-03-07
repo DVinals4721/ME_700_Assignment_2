@@ -500,31 +500,6 @@ class FrameSolver:
             return critical_load_factor, critical_mode
         else:
             return None, None
-    def plot_member_forces(self, element: Element, forces: np.ndarray):
-        """Plot member internal forces and moments in local coordinates."""
-        L = np.linalg.norm(element.node2.coordinates - element.node1.coordinates)
-        x = np.linspace(0, L, 100)
-        
-        fig, axs = plt.subplots(3, 2, figsize=(12, 15))
-        titles = ['Axial Force', 'Shear Force Y', 'Shear Force Z', 'Torsion', 'Bending Moment Y', 'Bending Moment Z']
-        
-        for i, (ax, title) in enumerate(zip(axs.flat, titles)):
-            if i in [0, 3]:  # Constant along length
-                ax.plot([0, L], [forces[i], forces[i+6]])
-            elif i in [1, 2]:  # Linear variation
-                ax.plot(x, np.interp(x, [0, L], [forces[i], forces[i+6]]))
-            else:  # Quadratic variation
-                a = (forces[i+6] - forces[i]) / L
-                b = forces[i]
-                ax.plot(x, a * x**2 / 2 + b * x)
-            
-            ax.set_title(title)
-            ax.set_xlabel('Length')
-            ax.set_ylabel('Force/Moment')
-        
-        plt.tight_layout()
-        plt.show()
-
     def plot_deformed_shape(self, U: np.ndarray, buckling_mode: np.ndarray = None, scale: float = 1, num_points: int = 100,
                             show_original: bool = True, show_deformed: bool = True, show_buckling: bool = True):
         """

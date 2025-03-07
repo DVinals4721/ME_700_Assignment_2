@@ -1,6 +1,9 @@
 import pytest
 import numpy as np
 from frame_solver import Node, Element, Load, BoundaryCondition, FrameSolver
+import scipy
+import matplotlib as plt
+from mpl_toolkits.mplot3d import Axes3D
 @pytest.fixture
 def simple_frame():
     nodes = [
