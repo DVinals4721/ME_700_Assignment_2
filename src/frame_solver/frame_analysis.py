@@ -67,12 +67,7 @@ class FrameSolver:
         for iteration in range(max_iterations):
             K = self._assemble_global_stiffness_matrix()
             F = self._assemble_load_vector()
-            
-            print(f"Iteration {iteration}")
-            print("K shape:", K.shape)
-            print("F shape:", F.shape)
-            print("K condition number:", np.linalg.cond(K))
-            print("F norm:", np.linalg.norm(F))
+    
             
             K_mod, F_mod = self._apply_boundary_conditions(K, F)
             
@@ -84,11 +79,6 @@ class FrameSolver:
             try:
                 U_mod = np.linalg.solve(K_mod, F_mod)
             except np.linalg.LinAlgError as e:
-                print(f"Linear algebra error: {e}")
-                print("K_mod:")
-                print(K_mod)
-                print("F_mod:")
-                print(F_mod)
                 raise
             
             U = self._recover_full_displacement_vector(U_mod)
@@ -126,27 +116,23 @@ class FrameSolver:
         if self.kg_included:
             return k_e + k_g
         return k_e
-
     def _compute_transformation_matrix(self, element: Element) -> np.ndarray:
         x1, y1, z1 = element.node1.coordinates
         x2, y2, z2 = element.node2.coordinates
         gamma = self.rotation_matrix_3D(x1, y1, z1, x2, y2, z2, element.local_z)
         return self.transformation_matrix_3D(gamma)
-
     def _get_element_dofs(self, element: Element) -> List[int]:
         dofs = []
         for node in [element.node1, element.node2]:
             start_dof = node.id * 6
             dofs.extend(range(start_dof, start_dof + 6))
         return dofs
-
     def _assemble_load_vector(self) -> np.ndarray:
         F = np.zeros(self.ndof)
         for load in self.loads:
             start_dof = load.node.id * 6
             F[start_dof:start_dof+6] += [load.fx, load.fy, load.fz, load.mx, load.my, load.mz]
         return F
-
     def _apply_boundary_conditions(self, K: np.ndarray, F: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         free_dofs = list(range(self.ndof))
         for bc in self.bcs:
@@ -158,13 +144,11 @@ class FrameSolver:
             if bc.ry: free_dofs.remove(start_dof + 4)
             if bc.rz: free_dofs.remove(start_dof + 5)
         return K[np.ix_(free_dofs, free_dofs)], F[free_dofs]
-
     def _recover_full_displacement_vector(self, U_mod: np.ndarray) -> np.ndarray:
         U = np.zeros(self.ndof)
         free_dofs = [i for i in range(self.ndof) if i not in self._get_constrained_dofs()]
         U[free_dofs] = U_mod
         return U
-
     def _get_constrained_dofs(self) -> List[int]:
         constrained_dofs = []
         for bc in self.bcs:
@@ -176,7 +160,6 @@ class FrameSolver:
             if bc.ry: constrained_dofs.append(start_dof + 4)
             if bc.rz: constrained_dofs.append(start_dof + 5)
         return constrained_dofs
-
     def _update_geometric_stiffness(self, U):
         for element in self.elements:
             u1 = U[element.node1.id * 6 : element.node1.id * 6 + 6]
@@ -255,7 +238,6 @@ class FrameSolver:
         k_e[4, 4] = k_e[10, 10] = 4.0 * E * Iy / L
         k_e[4, 10] = k_e[10, 4] = 2.0 * E * Iy / L
         return k_e
-
     def local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(self,L, A, I_rho, Fx2):
         k_g = np.zeros((12, 12))
         # Upper triangle off-diagonal terms
@@ -402,7 +384,6 @@ class FrameSolver:
                     K_geo_global[dofs[i], dofs[j]] += k_geo_global[i, j]
 
         return K_geo_global
-
     def _get_free_dofs(self):
         free_dofs = list(range(self.ndof))
         for bc in self.bcs:
@@ -414,7 +395,6 @@ class FrameSolver:
             if bc.ry: free_dofs.remove(start_dof + 4)
             if bc.rz: free_dofs.remove(start_dof + 5)
         return free_dofs
-    
     def compute_member_forces(self, element: Element, U: np.ndarray) -> np.ndarray:
         """Compute member internal forces and moments in local coordinates."""
         # Get node coordinates
@@ -493,19 +473,22 @@ class FrameSolver:
 
         # Solve the generalized eigenvalue problem
         eigvals, eigvecs = scipy.linalg.eig(K_e_ff, -K_g_ff)
-
-        # Filter and sort eigenvalues and eigenvectors
-        real_pos_mask = np.isreal(eigvals) & (eigvals > 0)
-        filtered_eigvals = np.real(eigvals[real_pos_mask])
-        filtered_eigvecs = eigvecs[:, real_pos_mask]
-
-        if len(filtered_eigvals) > 0:
-            # Find the index of the smallest positive real eigenvalue
-            min_index = np.argmin(filtered_eigvals)
+        
+        # Get the real parts of the eigenvalues
+        real_eigvals = np.real(eigvals)
+        
+        # Filter for positive eigenvalues
+        positive_eigvals = real_eigvals[real_eigvals > 0]
+        
+        if len(positive_eigvals) > 0:
+            # Find the smallest positive eigenvalue
+            critical_load_factor = np.min(positive_eigvals)
             
-            # Get the smallest positive real eigenvalue and its corresponding eigenvector
-            critical_load_factor = filtered_eigvals[min_index]
-            critical_mode_free = filtered_eigvecs[:, min_index]
+            # Find the index of the critical eigenvalue in the original array
+            critical_index = np.where(np.isclose(real_eigvals, critical_load_factor))[0][0]
+            
+            # Get the corresponding eigenvector
+            critical_mode_free = np.real(eigvecs[:, critical_index])
             
             # Normalize the eigenvector
             critical_mode_free = critical_mode_free / np.linalg.norm(critical_mode_free)
@@ -542,125 +525,106 @@ class FrameSolver:
         plt.tight_layout()
         plt.show()
 
-    def hermite_polynomials(self,xi):
+    def plot_deformed_shape(self, U: np.ndarray, buckling_mode: np.ndarray = None, scale: float = 1, num_points: int = 100,
+                            show_original: bool = True, show_deformed: bool = True, show_buckling: bool = True):
         """
-        Calculate Hermite polynomials for beam elements.
-        xi: Local coordinate (-1 to 1)
+        Plot the interpolated deformed shape and buckling mode of the structure using Hermite shape functions.
+        
+        Parameters:
+        - U: Displacement vector
+        - buckling_mode: Buckling mode vector (optional)
+        - scale: Scaling factor for displacements
+        - num_points: Number of points for interpolation
+        - show_original: Whether to show the original shape
+        - show_deformed: Whether to show the deformed shape
+        - show_buckling: Whether to show the buckling mode
         """
-        H1 = 0.25 * (1 - xi)**2 * (2 + xi)
-        H2 = 0.25 * (1 - xi)**2 * (1 + xi)
-        H3 = 0.25 * (1 + xi)**2 * (2 - xi)
-        H4 = 0.25 * (1 + xi)**2 * (xi - 1)
-        return np.array([H1, H2, H3, H4])
-    def plot_original_frame(self):
-        """Plot the original frame without deformations."""
         fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection='3d')
-
-        # Plot all node positions
-        for node in self.nodes:
-            x, y, z = node.coordinates
-            ax.scatter(x, y, z, c='b', marker='o', s=30)
-
-        # Plot all elements
-        for element in self.elements:
-            x1, y1, z1 = element.node1.coordinates
-            x2, y2, z2 = element.node2.coordinates
-            
-            # Original shape
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'b-')
-
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title('Original Frame')
-
-        # Set aspect ratio to be equal
-        ax.set_box_aspect((np.ptp(ax.get_xlim()), np.ptp(ax.get_ylim()), np.ptp(ax.get_zlim())))
-
-        plt.tight_layout()
-        plt.show()
-    def plot_deformed_shape(self, U: np.ndarray, buckling_mode: np.ndarray = None, scale: float = 1, num_points: int = 100):
-        """Plot the interpolated deformed shape and buckling mode of the structure using cubic interpolation."""
-        fig = plt.figure(figsize=(12, 8))
-        ax = fig.add_subplot(111, projection='3d')
-
-        s = np.linspace(0, 1, num_points)
-
-        # Dictionary to store deformed node positions
-        deformed_nodes = {}
-        buckling_nodes = {}
 
         # Calculate max displacement for adaptive scaling
         max_disp = np.max(np.abs(U.reshape(-1, 6)[:, :3]))
         adaptive_scale = scale * 0.1 / max_disp if max_disp > 0 else scale
 
-        # First, calculate and plot all node positions
+        def hermite_shape_functions(xi):
+            """Calculate Hermite shape functions for a given normalized coordinate xi."""
+            N1 = 1 - 3*xi**2 + 2*xi**3
+            N2 = xi - 2*xi**2 + xi**3
+            N3 = 3*xi**2 - 2*xi**3
+            N4 = -xi**2 + xi**3
+            return np.array([N1, N2, N3, N4])
+
+        def interpolate_beam_deformation(x1, y1, z1, x2, y2, z2, u1, u2, theta1, theta2, mode='deformed'):
+            """Interpolate the beam deformation using Hermite shape functions."""
+            L = np.linalg.norm(np.array([x2, y2, z2]) - np.array([x1, y1, z1]))
+            xi = np.linspace(0, 1, num_points)
+            x = np.zeros(num_points)
+            y = np.zeros(num_points)
+            z = np.zeros(num_points)
+            
+            for i, xi_i in enumerate(xi):
+                N = hermite_shape_functions(xi_i)
+                
+                if mode == 'deformed':
+                    disp = adaptive_scale * np.array([u1, u2]).flatten()
+                    rot = adaptive_scale * np.array([theta1, theta2]).flatten()
+                else:  # buckling mode
+                    disp = adaptive_scale * np.array([u1, u2]).flatten()
+                    rot = adaptive_scale * np.array([theta1, theta2]).flatten()
+                
+                x[i] = (1-xi_i)*x1 + xi_i*x2 + N[0]*disp[0] + N[2]*disp[3] + L*N[1]*rot[1] + L*N[3]*rot[4]
+                y[i] = (1-xi_i)*y1 + xi_i*y2 + N[0]*disp[1] + N[2]*disp[4] + L*N[1]*rot[2] + L*N[3]*rot[5]
+                z[i] = (1-xi_i)*z1 + xi_i*z2 + N[0]*disp[2] + N[2]*disp[5] - L*N[1]*rot[0] - L*N[3]*rot[3]
+            
+            return x, y, z
+
+        # Plot nodes
         for node in self.nodes:
             x, y, z = node.coordinates
-            u = adaptive_scale * U[node.id * 6 : node.id * 6 + 3]
-            deformed_pos = np.array([x + u[0], y + u[1], z + u[2]])
-            deformed_nodes[node.id] = deformed_pos
+            
+            if show_original:
+                ax.scatter(x, y, z, c='b', marker='o', s=30, label='Original' if node == self.nodes[0] else "")
+            
+            if show_deformed:
+                u = adaptive_scale * U[node.id * 6 : node.id * 6 + 3]
+                deformed_pos = np.array([x + u[0], y + u[1], z + u[2]])
+                ax.scatter(*deformed_pos, c='r', marker='o', s=30, label='Deformed' if node == self.nodes[0] else "")
 
-            # Plot original and deformed node positions
-            ax.scatter(x, y, z, c='b', marker='o', s=30, label='Original' if node == self.nodes[0] else "")
-            ax.scatter(*deformed_pos, c='r', marker='o', s=30, label='Deformed' if node == self.nodes[0] else "")
-
-            if buckling_mode is not None:
+            if show_buckling and buckling_mode is not None:
                 b = adaptive_scale * buckling_mode[node.id * 6 : node.id * 6 + 3]
                 buckling_pos = np.array([x + b[0], y + b[1], z + b[2]])
-                buckling_nodes[node.id] = buckling_pos
                 ax.scatter(*buckling_pos, c='g', marker='o', s=30, label='Buckling Mode' if node == self.nodes[0] else "")
 
-        # Now plot the elements with cubic interpolation
+        # Plot elements
         for element in self.elements:
             x1, y1, z1 = element.node1.coordinates
             x2, y2, z2 = element.node2.coordinates
             
-            # Original shape
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'b-')
+            if show_original:
+                ax.plot([x1, x2], [y1, y2], [z1, z2], 'b-')
 
-            # Deformed shape
-            u1 = deformed_nodes[element.node1.id]
-            u2 = deformed_nodes[element.node2.id]
-            theta1 = U[element.node1.id * 6 + 3 : element.node1.id * 6 + 6]
-            theta2 = U[element.node2.id * 6 + 3 : element.node2.id * 6 + 6]
+            if show_deformed:
+                u1 = U[element.node1.id * 6 : element.node1.id * 6 + 3]
+                u2 = U[element.node2.id * 6 : element.node2.id * 6 + 3]
+                theta1 = U[element.node1.id * 6 + 3 : element.node1.id * 6 + 6]
+                theta2 = U[element.node2.id * 6 + 3 : element.node2.id * 6 + 6]
 
-            # Element length and direction
-            L = np.linalg.norm(np.array([x2, y2, z2]) - np.array([x1, y1, z1]))
-            direction = np.array([x2 - x1, y2 - y1, z2 - z1]) / L
+                x_def, y_def, z_def = interpolate_beam_deformation(x1, y1, z1, x2, y2, z2, u1, u2, theta1, theta2, mode='deformed')
+                ax.plot(x_def, y_def, z_def, 'r-')
 
-            # Cubic interpolation for deformed shape
-            def cubic_interp(s, p0, p1, v0, v1):
-                return (2*s**3 - 3*s**2 + 1) * p0 + \
-                    (s**3 - 2*s**2 + s) * L * v0 + \
-                    (-2*s**3 + 3*s**2) * p1 + \
-                    (s**3 - s**2) * L * v1
-        
-            x_def = cubic_interp(s, u1[0], u2[0], adaptive_scale * np.cross(theta1, direction)[0], adaptive_scale * np.cross(theta2, direction)[0])
-            y_def = cubic_interp(s, u1[1], u2[1], adaptive_scale * np.cross(theta1, direction)[1], adaptive_scale * np.cross(theta2, direction)[1])
-            z_def = cubic_interp(s, u1[2], u2[2], adaptive_scale * np.cross(theta1, direction)[2], adaptive_scale * np.cross(theta2, direction)[2])
-
-            ax.plot(x_def, y_def, z_def, 'r-')
-
-            # Buckling mode shape
-            if buckling_mode is not None:
-                b1 = buckling_nodes[element.node1.id]
-                b2 = buckling_nodes[element.node2.id]
+            if show_buckling and buckling_mode is not None:
+                b1 = buckling_mode[element.node1.id * 6 : element.node1.id * 6 + 3]
+                b2 = buckling_mode[element.node2.id * 6 : element.node2.id * 6 + 3]
                 theta_b1 = buckling_mode[element.node1.id * 6 + 3 : element.node1.id * 6 + 6]
                 theta_b2 = buckling_mode[element.node2.id * 6 + 3 : element.node2.id * 6 + 6]
 
-                # Cubic interpolation for buckling mode
-                x_buck = cubic_interp(s, b1[0], b2[0], adaptive_scale * np.cross(theta_b1, direction)[0], adaptive_scale * np.cross(theta_b2, direction)[0])
-                y_buck = cubic_interp(s, b1[1], b2[1], adaptive_scale * np.cross(theta_b1, direction)[1], adaptive_scale * np.cross(theta_b2, direction)[1])
-                z_buck = cubic_interp(s, b1[2], b2[2], adaptive_scale * np.cross(theta_b1, direction)[2], adaptive_scale * np.cross(theta_b2, direction)[2])
-
+                x_buck, y_buck, z_buck = interpolate_beam_deformation(x1, y1, z1, x2, y2, z2, b1, b2, theta_b1, theta_b2, mode='buckling')
                 ax.plot(x_buck, y_buck, z_buck, 'g-')
 
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
-        ax.set_title('Deformed Shape and Buckling Mode (Cubic Interpolation)')
+        ax.set_title('Structure Visualization')
         ax.legend()
 
         # Set aspect ratio to be equal
