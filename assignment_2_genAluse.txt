@@ -1,0 +1,5 @@
+ChatGPT-4o was used to help write the funcitons that throw errors and the tests that test these funcitons.
+ChatGPT-4o was used to make the testing more robust.
+ChatGPT-4o was used to help me get an initial structure for the code
+ChatGPT-4o was used to help pick out the first three tutorial problems.
+ChatGPT-4o was used brodly to help make the readme file. For example, I uploaded my code and asked to create a description in markdown of how to use it.
