@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from frame_solver import Node, Element, Load, BoundaryCondition, FrameSolver
-
 @pytest.fixture
 def simple_frame():
     nodes = [
@@ -20,15 +19,15 @@ def simple_frame():
     ]
     return nodes, elements, loads, bcs
 
-def test_node():
-    node = Node(0, 1, 2, 3)
-    assert node.id == 0
-    assert node.x == 1
-    assert node.y == 2
-    assert node.z == 3
-    np.testing.assert_array_equal(node.coordinates, np.array([1, 2, 3]))
+def test_node_properties():
+    node = Node(1, 2, 3, 4)
+    assert node.id == 1
+    assert node.x == 2
+    assert node.y == 3
+    assert node.z == 4
+    np.testing.assert_array_equal(node.coordinates, np.array([2, 3, 4]))
 
-def test_element():
+def test_element_properties():
     node1 = Node(0, 0, 0, 0)
     node2 = Node(1, 1, 1, 1)
     element = Element(0, node1, node2, 200e9, 0.3, 0.01, 1e-4, 1e-4, 2e-4, 2e-4, np.array([0, 1, 0]))
@@ -44,27 +43,27 @@ def test_element():
     assert element.I_rho == 2e-4
     np.testing.assert_array_equal(element.local_z, np.array([0, 1, 0]))
 
-def test_load():
+def test_load_properties():
     node = Node(0, 0, 0, 0)
-    load = Load(node, fx=1000, fy=2000, fz=3000, mx=4000, my=5000, mz=6000)
+    load = Load(node, fx=1, fy=2, fz=3, mx=4, my=5, mz=6)
     assert load.node == node
-    assert load.fx == 1000
-    assert load.fy == 2000
-    assert load.fz == 3000
-    assert load.mx == 4000
-    assert load.my == 5000
-    assert load.mz == 6000
+    assert load.fx == 1
+    assert load.fy == 2
+    assert load.fz == 3
+    assert load.mx == 4
+    assert load.my == 5
+    assert load.mz == 6
 
-def test_boundary_condition():
+def test_boundary_condition_properties():
     node = Node(0, 0, 0, 0)
-    bc = BoundaryCondition(node, ux=True, uy=True, uz=False, rx=True, ry=False, rz=True)
+    bc = BoundaryCondition(node, ux=True, uy=False, uz=True, rx=False, ry=True, rz=False)
     assert bc.node == node
     assert bc.ux == True
-    assert bc.uy == True
-    assert bc.uz == False
-    assert bc.rx == True
-    assert bc.ry == False
-    assert bc.rz == True
+    assert bc.uy == False
+    assert bc.uz == True
+    assert bc.rx == False
+    assert bc.ry == True
+    assert bc.rz == False
 
 def test_frame_solver_initialization(simple_frame):
     nodes, elements, loads, bcs = simple_frame
@@ -85,35 +84,34 @@ def test_frame_solver_solve(simple_frame):
     assert isinstance(critical_load_factor, float)
     assert buckling_mode.shape == (len(nodes) * 6,)
 
-def test_frame_solver_assemble_global_stiffness_matrix(simple_frame):
-    nodes, elements, loads, bcs = simple_frame
-    solver = FrameSolver(nodes, elements, loads, bcs)
-    K = solver._assemble_global_stiffness_matrix()
-    assert K.shape == (len(nodes) * 6, len(nodes) * 6)
 
 def test_frame_solver_compute_element_stiffness_matrix(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     k = solver._compute_element_stiffness_matrix(elements[0])
     assert k.shape == (12, 12)
+    assert np.allclose(k, k.T)  # Check symmetry
 
 def test_frame_solver_compute_transformation_matrix(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     T = solver._compute_transformation_matrix(elements[0])
     assert T.shape == (12, 12)
+    assert np.allclose(T @ T.T, np.eye(12))  # Check orthogonality
 
 def test_frame_solver_get_element_dofs(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     dofs = solver._get_element_dofs(elements[0])
     assert len(dofs) == 12
+    assert all(0 <= dof < solver.ndof for dof in dofs)
 
 def test_frame_solver_assemble_load_vector(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     F = solver._assemble_load_vector()
     assert F.shape == (len(nodes) * 6,)
+    assert np.sum(F) == -1000  # Sum of loads should equal the applied load
 
 def test_frame_solver_apply_boundary_conditions(simple_frame):
     nodes, elements, loads, bcs = simple_frame
@@ -130,39 +128,23 @@ def test_frame_solver_recover_full_displacement_vector(simple_frame):
     U_mod = np.ones(len(nodes) * 6 - len(solver._get_constrained_dofs()))
     U = solver._recover_full_displacement_vector(U_mod)
     assert U.shape == (len(nodes) * 6,)
-
-def test_frame_solver_get_constrained_dofs(simple_frame):
-    nodes, elements, loads, bcs = simple_frame
-    solver = FrameSolver(nodes, elements, loads, bcs)
-    constrained_dofs = solver._get_constrained_dofs()
-    assert len(constrained_dofs) > 0
+    assert np.all(U[solver._get_constrained_dofs()] == 0)
 
 def test_frame_solver_update_geometric_stiffness(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
-    
-    # Store initial Fx2 values
+    U = np.random.rand(len(nodes) * 6) * 0.01
     initial_Fx2 = [element.Fx2 for element in elements]
-    
-    # Create a more realistic displacement vector
-    U = np.random.rand(len(nodes) * 6) * 0.01  # Small random displacements
-    
-    # Update geometric stiffness
     solver._update_geometric_stiffness(U)
-    
-    # Check if the method ran without errors
-    assert True
-    
-    # Optionally, check if any Fx2 values changed
     final_Fx2 = [element.Fx2 for element in elements]
-    assert any(initial != final for initial, final in zip(initial_Fx2, final_Fx2)), \
-        "No changes in Fx2 values after updating geometric stiffness"
+    assert any(initial != final for initial, final in zip(initial_Fx2, final_Fx2))
 
 def test_frame_solver_rotation_matrix_3D(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     gamma = solver.rotation_matrix_3D(0, 0, 0, 1, 1, 1)
     assert gamma.shape == (3, 3)
+    assert np.allclose(gamma @ gamma.T, np.eye(3))  # Check orthogonality
 
 def test_frame_solver_transformation_matrix_3D(simple_frame):
     nodes, elements, loads, bcs = simple_frame
@@ -170,24 +152,28 @@ def test_frame_solver_transformation_matrix_3D(simple_frame):
     gamma = np.eye(3)
     T = solver.transformation_matrix_3D(gamma)
     assert T.shape == (12, 12)
+    assert np.allclose(T @ T.T, np.eye(12))  # Check orthogonality
 
 def test_frame_solver_local_elastic_stiffness_matrix_3D_beam(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     k_e = solver.local_elastic_stiffness_matrix_3D_beam(200e9, 0.3, 0.01, 3, 1e-4, 1e-4, 2e-4)
     assert k_e.shape == (12, 12)
+    assert np.allclose(k_e, k_e.T)  # Check symmetry
 
 def test_frame_solver_local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     k_g = solver.local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(3, 0.01, 2e-4, 1000)
     assert k_g.shape == (12, 12)
+    assert np.allclose(k_g, k_g.T)  # Check symmetry
 
 def test_frame_solver_local_geometric_stiffness_matrix_3D_beam(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     k_g = solver.local_geometric_stiffness_matrix_3D_beam(3, 0.01, 2e-4, 1000, 100, 200, 300, 400, 500)
     assert k_g.shape == (12, 12)
+    assert np.allclose(k_g, k_g.T)  # Check symmetry
 
 def test_frame_solver_assemble_global_geometric_stiffness_matrix(simple_frame):
     nodes, elements, loads, bcs = simple_frame
@@ -195,12 +181,14 @@ def test_frame_solver_assemble_global_geometric_stiffness_matrix(simple_frame):
     U = np.ones(len(nodes) * 6)
     K_geo = solver._assemble_global_geometric_stiffness_matrix(U)
     assert K_geo.shape == (len(nodes) * 6, len(nodes) * 6)
+    assert np.allclose(K_geo, K_geo.T)  # Check symmetry
 
 def test_frame_solver_get_free_dofs(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
     free_dofs = solver._get_free_dofs()
     assert len(free_dofs) < len(nodes) * 6
+    assert all(0 <= dof < solver.ndof for dof in free_dofs)
 
 def test_frame_solver_compute_member_forces(simple_frame):
     nodes, elements, loads, bcs = simple_frame
@@ -209,10 +197,39 @@ def test_frame_solver_compute_member_forces(simple_frame):
     forces = solver.compute_member_forces(elements[0], U)
     assert forces.shape == (12,)
 
-def test_frame_solver_solve_critical_buckling_load(simple_frame):
+def test_critical_load_factor_cantilever_beam():
+    L = 3.0
+    E = 200e9
+    I = 1e-6
+    A = 1e-4
+
+    nodes = [Node(0, 0, 0, 0), Node(1, 0, 0, L)]
+    elements = [Element(0, nodes[0], nodes[1], E, 0.3, A, I, I, 2*I, 2*I, np.array([0, 1, 0]))]
+    loads = [Load(nodes[1], fy=-1000)]
+    bcs = [BoundaryCondition(nodes[0], ux=True, uy=True, uz=True, rx=True, ry=True, rz=True)]
+    
+    solver = FrameSolver(nodes, elements, loads, bcs)
+    U, R, critical_load_factor, buckling_mode = solver.solve()
+    
+    P_cr_theoretical = (np.pi**2 * E * I) / (4 * L**2)
+    expected_critical_load_factor = P_cr_theoretical / 1000
+    
+    np.testing.assert_allclose(critical_load_factor, expected_critical_load_factor, rtol=1e-2)
+
+def test_solve_with_geometric_stiffness(simple_frame):
     nodes, elements, loads, bcs = simple_frame
     solver = FrameSolver(nodes, elements, loads, bcs)
-    U = np.ones(len(nodes) * 6)
+    solver.kg_included = True
+    U, R, critical_load_factor, buckling_mode = solver.solve()
+    assert U.shape == (len(nodes) * 6,)
+    assert R.shape == (len(nodes) * 6,)
+    assert isinstance(critical_load_factor, float)
+    assert buckling_mode.shape == (len(nodes) * 6,)
+
+def test_solve_critical_buckling_load(simple_frame):
+    nodes, elements, loads, bcs = simple_frame
+    solver = FrameSolver(nodes, elements, loads, bcs)
+    U = np.random.rand(len(nodes) * 6) * 0.01
     critical_load_factor, buckling_mode = solver.solve_critical_buckling_load(U)
     assert isinstance(critical_load_factor, float)
     assert buckling_mode.shape == (len(nodes) * 6,)
