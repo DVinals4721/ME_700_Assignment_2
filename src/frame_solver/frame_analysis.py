@@ -110,11 +110,6 @@ class FrameSolver:
         k_e = self.local_elastic_stiffness_matrix_3D_beam(
             element.E, element.nu, element.A, L, element.Iy, element.Iz, element.J
         )
-        k_g = self.local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(
-            L, element.A, element.I_rho, element.Fx2
-        )
-        if self.kg_included:
-            return k_e + k_g
         return k_e
     def _compute_transformation_matrix(self, element: Element) -> np.ndarray:
         x1, y1, z1 = element.node1.coordinates
@@ -238,29 +233,7 @@ class FrameSolver:
         k_e[4, 4] = k_e[10, 10] = 4.0 * E * Iy / L
         k_e[4, 10] = k_e[10, 4] = 2.0 * E * Iy / L
         return k_e
-    def local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(self,L, A, I_rho, Fx2):
-        k_g = np.zeros((12, 12))
-        # Upper triangle off-diagonal terms
-        k_g[0, 6] = -Fx2 / L
-        k_g[1, 5] = k_g[1, 11] = Fx2 / 10.0
-        k_g[1, 7] = -6.0 * Fx2 / (5.0 * L)
-        k_g[2, 4] = k_g[2, 10] = -Fx2 / 10.0
-        k_g[2, 8] = -6.0 * Fx2 / (5.0 * L)
-        k_g[3, 9] = -Fx2 * I_rho / (A * L)
-        k_g[4, 8] = k_g[4, 10] = Fx2 / 10.0
-        k_g[4, 10] = -Fx2 * L / 30.0
-        k_g[5, 7] = k_g[5, 11] = -Fx2 / 10.0
-        k_g[5, 11] = -Fx2 * L / 30.0
-        k_g[7, 11] = -Fx2 / 10.0
-        k_g[8, 10] = Fx2 / 10.0
-        # Add symmetric lower triangle
-        k_g = k_g + k_g.T
-        # Diagonal terms
-        k_g[0, 0] = k_g[6, 6] = Fx2 / L
-        k_g[1, 1] = k_g[2, 2] = k_g[7, 7] = k_g[8, 8] = 6.0 * Fx2 / (5.0 * L)
-        k_g[3, 3] = k_g[9, 9] = Fx2 * I_rho / (A * L)
-        k_g[4, 4] = k_g[5, 5] = k_g[10, 10] = k_g[11, 11] = 2.0 * Fx2 * L / 15.0
-        return k_g
+
     def local_geometric_stiffness_matrix_3D_beam(self,L, A, I_rho, Fx2, Mx2, My1, Mz1, My2, Mz2):
         """
         local element geometric stiffness matrix
@@ -501,7 +474,7 @@ class FrameSolver:
         else:
             return None, None
     def plot_deformed_shape(self, U: np.ndarray, buckling_mode: np.ndarray = None, scale: float = 1, num_points: int = 100,
-                            show_original: bool = True, show_deformed: bool = True, show_buckling: bool = True):
+                            show_original: bool = True, show_deformed: bool = True, show_buckling: bool = True,show=True):
         """
         Plot the interpolated deformed shape and buckling mode of the structure using Hermite shape functions.
         
@@ -606,4 +579,6 @@ class FrameSolver:
         ax.set_box_aspect((np.ptp(ax.get_xlim()), np.ptp(ax.get_ylim()), np.ptp(ax.get_zlim())))
 
         plt.tight_layout()
-        plt.show()
+        if show:
+            plt.show()
+        return fig, ax

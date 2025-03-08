@@ -264,7 +264,6 @@ def Problem4():
 
     print_results(nodes, displacements, reactions)
     forces1 = solver.compute_member_forces(elements[0], displacements)
-    solver.plot_member_forces(elements[0], forces1)
     solver.plot_deformed_shape(displacements, buckling_mode, scale=10)
 
     print(f"\nElastic Critical Load Factor: {critical_load_factor}")
@@ -303,8 +302,6 @@ def Problem5():
     displacements, reactions, critical_load_factor, buckling_mode = solver.solve()
 
     print_results(nodes, displacements, reactions)
-    forces1 = solver.compute_member_forces(elements[0], displacements)
-    solver.plot_member_forces(elements[0], forces1)
     solver.plot_deformed_shape(displacements, buckling_mode, scale=10)
 
     print(f"\nElastic Critical Load Factor: {critical_load_factor}")
@@ -337,14 +334,18 @@ def Problem6():
 
     print_results(nodes, displacements, reactions)
     forces1 = solver.compute_member_forces(elements[0], displacements)
-    solver.plot_member_forces(elements[0], forces1)
     solver.plot_deformed_shape(displacements, buckling_mode, scale=1)
 
     print(f"\nElastic Critical Load Factor: {critical_load_factor}")
     print(f"\nBuckling Mode: {buckling_mode}")
 
 if __name__ == "__main__":
-    #Problem1_Sec()
-    #Problem2_Sec()
-    #Problem3_Sec()
+    Problem1_Sec()
+    Problem2_Sec()
+    Problem3_Sec()
+    Problem1()
+    Problem2()
+    Problem3()
+    Problem4()
+    Problem5()
     Problem6()

@@ -2,8 +2,9 @@ import pytest
 import numpy as np
 from frame_solver import Node, Element, Load, BoundaryCondition, FrameSolver
 import scipy
-import matplotlib as plt
+import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from unittest.mock import patch
 @pytest.fixture
 def simple_frame():
     nodes = [
@@ -164,12 +165,6 @@ def test_frame_solver_local_elastic_stiffness_matrix_3D_beam(simple_frame):
     assert k_e.shape == (12, 12)
     assert np.allclose(k_e, k_e.T)  # Check symmetry
 
-def test_frame_solver_local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(simple_frame):
-    nodes, elements, loads, bcs = simple_frame
-    solver = FrameSolver(nodes, elements, loads, bcs)
-    k_g = solver.local_geometric_stiffness_matrix_3D_beam_without_interaction_terms(3, 0.01, 2e-4, 1000)
-    assert k_g.shape == (12, 12)
-    assert np.allclose(k_g, k_g.T)  # Check symmetry
 
 def test_frame_solver_local_geometric_stiffness_matrix_3D_beam(simple_frame):
     nodes, elements, loads, bcs = simple_frame
@@ -277,6 +272,35 @@ def test_critical_load_factor_cantilever_beam():
 # Note: The plot_member_forces and plot_deformed_shape methods are not tested here
 # as they involve matplotlib visualization. These would typically be tested
 # separately or with mocking of matplotlib functions.
+def test_frame_solver_local_geometric_stiffness_matrix_3D(simple_frame):
+    nodes, elements, loads, bcs = simple_frame
+    solver = FrameSolver(nodes, elements, loads, bcs)
+    k_g = solver.local_geometric_stiffness_matrix_3D_beam(3, 0.01, 2e-4, 1000,1,1,1,1,1)
+    assert k_g.shape == (12, 12)
+    assert np.allclose(k_g, k_g.T)  # Check symmetry
 
+def test_plot_deformed_shape():
+    # Create a dummy FrameSolver instance with minimal required attributes
+    L = 3.0
+    E = 200e9
+    I = 1e-6
+    A = 1e-4
+
+    nodes = [Node(0, 0, 0, 0), Node(1, 0, 0, L)]
+    elements = [Element(0, nodes[0], nodes[1], E, 0.3, A, I, I, 2*I, 2*I, np.array([0, 1, 0]))]
+    loads = [Load(nodes[1], fy=-1000)]
+    bcs = [BoundaryCondition(nodes[0], ux=True, uy=True, uz=True, rx=True, ry=True, rz=True)]
+    
+    solver = FrameSolver(nodes, elements, loads, bcs)
+    U, R, critical_load_factor, buckling_mode = solver.solve()
+    # Call the plot_deformed_shape method
+    fig, ax = solver.plot_deformed_shape(U, buckling_mode, show=False)
+    assert fig is not None, "Figure was not created"
+    assert isinstance(fig, plt.Figure), "Returned object is not a matplotlib Figure"
+    assert ax is not None, "Axes was not created"
+    assert isinstance(ax, Axes3D), "Returned object is not a matplotlib Axes"
+
+
+    print("Plot creation test passed successfully!")
 if __name__ == "__main__":
     pytest.main()
